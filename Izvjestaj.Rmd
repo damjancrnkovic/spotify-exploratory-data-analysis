@@ -2,16 +2,29 @@
 title: "Eksploratorna analiza Spotify skupa podataka"
 author: "... Ivan Josip Kardum, 36557629 Damjan Crnković"
 date: "`r Sys.Date()`"
-output: pdf_document
+output: html_document  ## ili pdf_document
 ---
 
 ```{r setup, include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(stringi)
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
 
 ```{r}
+data <- read.csv("spotify_songs.csv", sep = ",", fileEncoding = "ISO-8859-1")
+
+glimpse(data)
+head(data, 10)
+```
+# uredivanje podataka
+```{r}
+data$track_album_release_date <- as.Date(data$track_album_release_date)   # mozda posix
+factcols <- c("playlist_genre", "playlist_subgenre", "playlist_name", "track_artist", "mode")
+data[factcols] <- lapply(data[factcols], as.factor)
 
 ```
 
-safsdfgg
