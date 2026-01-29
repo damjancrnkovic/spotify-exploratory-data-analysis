@@ -1,0 +1,17 @@
+---
+title: "Eksploratorna analiza Spotify skupa podataka"
+author: "... Ivan Josip Kardum, 36557629 Damjan Crnković"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+
+```
+
+safsdfgg
