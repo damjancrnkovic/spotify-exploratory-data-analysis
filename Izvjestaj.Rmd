@@ -1,8 +1,10 @@
 ---
 title: "Eksploratorna analiza Spotify skupa podataka"
-author: "... Ivan Josip Kardum, 36557629 Damjan Crnković"
+author: "36558993 Ivan Josip Kardum, 36557629 Damjan Crnković"
 date: "`r Sys.Date()`"
-output: html_document  ## ili pdf_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -10,21 +12,93 @@ library(dplyr)
 library(ggplot2)
 library(readr)
 library(stringi)
+library(tidyverse)
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+Pri učitavanju podataka iz csv datoteke treba pripaziti na separator i vrstu encodinga.
 
-```{r}
+```{r, results='hide'}
 data <- read.csv("spotify_songs.csv", sep = ",", fileEncoding = "ISO-8859-1")
 
 glimpse(data)
 head(data, 10)
 ```
-# uredivanje podataka
-```{r}
-data$track_album_release_date <- as.Date(data$track_album_release_date)   # mozda posix
-factcols <- c("playlist_genre", "playlist_subgenre", "playlist_name", "track_artist", "mode")
-data[factcols] <- lapply(data[factcols], as.factor)
+# Uredivanje podataka
 
+Uočavamo da stupac s datumima treba pretvoriti u ispravan tip te da imamo nekoliko kategoričkih varijabli koje treba faktorizirati kako bismo ih po potrebi mogli koristiti za grupiranje u vizualizacijama i analizi.
+
+```{r}
+data$track_album_release_date <- as.Date(data$track_album_release_date)
+
+data$mode <- factor(
+  data$mode,
+  levels = c(0, 1),
+  labels = c("Minor", "Major")
+)
+
+factcols <- c("playlist_genre", "playlist_subgenre", "playlist_name", "track_artist")
+data[factcols] <- lapply(data[factcols], as.factor)
 ```
 
+# 1) Kako se audio svojstva razlikuju po žanrovima?
+
+Zanima nas koje audio značajke odlikuju žanrove i koliko se žanrovi razlikuju po tim svojstvima. Provjeravamo odnos energije, plesnosti, pozitivnosti i tempa sa žanrom.
+
+```{r}
+data %>%
+  select(playlist_genre, energy, danceability, valence, tempo) %>%
+  pivot_longer(-playlist_genre, names_to = "svojstva", values_to = "vrijednosti") %>%
+  ggplot(aes(x = playlist_genre, y = vrijednosti, fill = playlist_genre)) +
+  geom_boxplot() +
+  facet_wrap(~ svojstva, scales = "free_y") +
+  labs(title = "Žanrovi po svojstvima pjesama",
+       x = "",
+       y = "") +
+  theme(legend.position = "none", 
+        plot.title = element_text(hjust = 0.5))
+```
+
+Pregledom grafova vidimo da se žanrovi najviše razlikuju po plesnosti i energiji, gdje su razlike u medijanima vizualno očite, a varijabilnost približno ista (vidljivo po interkvantilnom rangu). Tempo pokazuje male razlike među žanrovima te se čini da nema značajan utjecaj pri klasificiranju pjesme u određeni žanr. Pozitivnost (valence) je također slična među većinom žanrova, uz iznimku EDM žanra koji odstupa s niskom razinom pozitivnosti i latin žanra koji ima blago veću razinu od ostalih. Analiza je provedena na razini playlisti, pri čemu se ista pjesma može pojaviti u više žanrova, što je prihvatljivo jer je cilj analize usporediti karakteristike po žanrovima a ne pojedinim pjesmama.
+
+# 2) Utječe li mode (dur/mol) na popularnost pjesama?
+
+Dur (Major) ljestvice u glazbi zvuče veselije i svijetlije od pripadajućih mol (Minor) ljestvica, pa analiziramo postoji li razlika u popularnosti pjesama s obzirom na glazbeni mod. Uklonit ćemo višestruka pojavljivanja određenih pjesama kako ne bi negativno utjecala na rezultate.
+
+```{r}
+data2 <- distinct(data, track_id, .keep_all = T)
+
+data2 %>% ggplot(aes(x = mode, y = track_popularity, fill = mode)) +
+  geom_boxplot() +
+  labs(title = "Popularnost pjesama u ovisnosti o glazbenom modu",
+       x = "Glazbeni mod",
+       y = "Popularnost") +
+  theme(legend.position = "none", 
+        plot.title = element_text(hjust = 0.5))
+```
+
+Pregledom grafičkog prikaza ne uočava se jasna razlika u popularnosti između pjesama pisanih u duru i molu. Medijani popularnosti vrlo su slični, a distribucije se u velikoj mjeri preklapaju, što upućuje na to da glazbeni mod sam po sebi nema izražen utjecaj na popularnost pjesama.
+
+
+# 3) Je li energija pjesme povezana s tempom i glasnoćom
+
+Energija pjesme je svojstvo koje je teško objektivno definirati te se često definira pomoću drugih svojstava. Zanima nas postoji li veza između tempa i glasnoće i percipirane energičnosti pjesama. Opet ćemo pri analizi gledati jedinstvene pjesme (bez ponavljanja). U drugom grafu ograničavamo se na 99.9% podataka kako stršeće vrijednosti ne bi remetile izgled grafa.
+
+```{r}
+ggplot(data2, aes(x = tempo, y = energy)) +
+  geom_point(alpha = 0.2) +
+  geom_smooth(method = "lm", se = F)
+
+ggplot(data2, aes(x = loudness, y = energy)) +
+  geom_point(alpha = 0.2) +
+  coord_cartesian(
+    xlim = quantile(data2$loudness, c(0.001, 0.999)),
+    ylim = quantile(data2$energy, c(0.001, 0.999))
+  ) +
+  geom_smooth(method = "lm", se = F)
+
+model <- lm(energy ~ tempo + loudness, data = data2)
+summary(model)
+```
+
+Linearni regresijski model potvrđuje uočene odnose s grafova. Glasnoća ima snažan i pozitivan utjecaj na energiju pjesme, dok je povezanost između tempa i energije statistički značajna, ali znatno slabijeg intenziteta. Vrijednost R^2 pokazuje da tempo i glasnoća zajedno objašnjavaju oko 47% varijabilnosti energije, što upućuje na to da energija pjesme ovisi i o drugim svojstvima koja ovdje nisu analizirana. Rezultati su u skladu s očekivanjima, budući da je glasnoća jedna od ključnih komponenti percepcije energičnosti glazbe, iako je utjecaj tempa možda bio manji nego očekivano.
