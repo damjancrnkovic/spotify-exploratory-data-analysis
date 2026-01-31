@@ -14,18 +14,29 @@ library(readr)
 library(stringi)
 library(tidyverse)
 library(lubridate)
+library(kernlab)
+library(caret)
+library(ranger)
 library(MASS)
 knitr::opts_chunk$set(echo = TRUE)
 ```
+U ovom izvještaju provedena je eksploratorna analiza skupa podataka "Spotify songs dataset
+(Kaggle)", koji sadrži oko 30 000 pjesama s opisanim svojstvima poput popularnosti, plesnosti, tempa i tonaliteta. Cilj analize je statističkom obradom i vizualizacijom podataka ispitati odnose između žanra, audio svojstava i popularnosti pjesama te istražiti kako su se te značajke mijenjale tijekom vremena. Također, izrađeni su modeli za predviđanje popularnosti pjesama na temelju njihovih svojstava i žanra.  
+
 
 Pri učitavanju podataka iz CSV datoteke, nakon čega slijedi osnovna analiza, proučavamo strukturu skupa podataka, prvih nekoliko zapisa te sažetak varijabli kako bismo stekli uvid u njihove karakteristike.
 
 ```{r, results='hide'}
 data <- read_csv("spotify_songs.csv")
+```
+
+```{r}
 glimpse(data)
 # head(data, 10)
 # summary(data)
 ```
+Skup podataka sadrži 23 varijable koje opisuju pjesme, uključujući audio značajke, žanr, popularnost te informacije o albumima. Ove varijable omogućuju analizu odnosa između svojstava pjesama i njihove popularnosti.
+
 # Priprema podataka
 
 Uočavamo da stupac s datumima treba pretvoriti u ispravan tip te da imamo nekoliko kategoričkih varijabli koje treba faktorizirati kako bismo ih po potrebi mogli koristiti za grupiranje u vizualizacijama i analizi.
@@ -85,7 +96,7 @@ data2 %>% ggplot(aes(x = mode, y = track_popularity, fill = mode)) +
 Pregledom grafičkog prikaza ne uočava se jasna razlika u popularnosti između pjesama pisanih u duru i molu. Medijani popularnosti vrlo su slični, a distribucije se u velikoj mjeri preklapaju, što upućuje na to da glazbeni mod sam po sebi nema izražen utjecaj na popularnost pjesama.
 
 
-# 3) Je li energija pjesme povezana s tempom i glasnoćom
+# 3) Je li energija pjesme povezana s tempom i glasnoćom?
 
 Energija pjesme je svojstvo koje je teško objektivno definirati te se često definira pomoću drugih svojstava. Zanima nas postoji li veza između tempa i glasnoće i percipirane energičnosti pjesama. Opet ćemo pri analizi gledati jedinstvene pjesme (bez ponavljanja). U drugom grafu ograničavamo se na 99.9% podataka kako stršeće vrijednosti ne bi remetile izgled grafa.
 
@@ -182,16 +193,124 @@ Emocionalna pozitivnost (valence) od 2000. nadalje strmoglavo opada, što sugeri
 
 
 # 5) Koje varijable utječu na popularnost pjesme?
--- uvijek je u fokusu promatranja hoce li i koliko pjesma biti popularna--
+Cilj ovog dijela analize je istražiti koje karakteristike pjesme utječu na njezinu popularnost. Koristimo **track_popularity** kao ciljnu (zavisnu) varijablu, a sve relevantne numeričke i kategorijske varijable kao prediktore. Prvo primjenjujemo tradicionalnu linearnu regresiju, zatim kompleksnije neuronske metode kako bismo identificirali najbolji model za predikciju.
+
+Prvi korak u izradi prediktivnog modela je podjela podataka na trening set i test set. Trening set koristimo za učenje modela, a test set za provjeru koliko dobro model radi na novim, nepoznatim podacima.
 ```{r}
-model_empty <- lm(track_popularity ~ 1, data = data)
-# model_full <- lm(track_popularity ~ ., data = data)
+set.seed(1234)
+train_size <- 0.7 * nrow(data) %>% round
+train_ind <- sample(1:nrow(data), train_size)
 
-# model <- stepAIC(lm_empty, direction = "forward", scope = list(upper = model_full, lower = model_empty), trace = 0)
-# summary(model)
-
+data_train <- data[train_ind,]
+data_test <- data[-train_ind,]
+ 
 ```
 
+Prije modeliranja uklanjamo varijable koje ne pomažu u predviđanju popularnosti, poput ID-eva, imena i datuma.
+
+```{r}
+
+data_train <- data_train %>% 
+  dplyr::select(-track_id, -track_name, -playlist_name, -track_album_id, -track_album_name, -track_artist, -playlist_id, -playlist_subgenre, -track_album_release_date)
+data_test <- data_test %>% 
+  dplyr::select(-track_id, -track_name, -playlist_name, -track_album_id, -track_album_name, -track_artist, -playlist_id, -playlist_subgenre, -track_album_release_date)
+```
+
+Sada koristimo višestruku linearnu regresiju kako bismo procijenili utjecaj svake varijable na popularnost pjesme.
+
+```{r}
+lmMod <- lm(track_popularity ~ ., data = data_train)
+summary(lmMod)
+```
+Linearni model pokazuje da nekoliko varijabli, poput žanra playlisti, danceability, loudness i instrumentalness, značajno utječe na popularnost pjesama. Neke varijable, poput key, mode i speechiness, nisu statistički značajne i ne doprinose predikciji popularnosti.
+
+Definiramo funkcije za izračun RMSE i R² kako bismo ocijenili točnost modela:
+```{r}
+rmse <- function(pred, stv) {
+  sqrt(mean((pred - stv)^2))
+}
+
+r_squared <- function(pred, true) {
+  1 - sum((pred - true)^2) / sum((true - mean(true))^2)
+}
+```
+Procjenjujemo točnost linearne regresije pomoću RMSE i R² na testnom skupu:
+```{r}
+data_test$predPopularityLM <- predict(lmMod, data_test)
+
+rmse_lm <- rmse(data_test$predPopularityLM, data_test$track_popularity)
+r2_lm <- r_squared(data_test$predPopularityLM, data_test$track_popularity)
+
+cat("Linearna regresija RMSE:", rmse_lm, "\n")
+cat("Linearna regresija R**2:", r2_lm, "\n")
+```
+Rezultati pokazuju da linearna regresija slabo predviđa popularnost pjesama, s velikom prosječnom pogreškom od oko 24 (skala 1-100). Niska vrijednost R² (0.09) znači da model objašnjava samo mali dio varijacije popularnosti.
+
+Sada koristimo slučajnu šumu za predviđanje popularnosti pjesama, jer nakon linearne regresije želimo poboljšati točnost predikcija. Uz primjenu cross-validation procjenjujemo pouzdanost modela, a zatim predviđamo popularnost na testnom skupu i izračunavamo RMSE i R² za ocjenu točnosti.
+```{r, results='hide'}
+ctrl <- trainControl(
+  method = "repeatedcv",
+  number = 5,
+  repeats = 2,
+  verboseIter = TRUE
+)
+
+rfMod <- train(
+  track_popularity ~ .,
+  data = data_train,
+  method = 'ranger',
+  tuneLength = 5,
+  trControl = ctrl,
+  num.trees = 20  
+)
+```
+
+```{r}
+
+data_test$predPopularityRF <- predict(rfMod, data_test)
+
+rmse_rf <- rmse(data_test$predPopularityRF, data_test$track_popularity)
+r2_rf <- r_squared(data_test$predPopularityRF, data_test$track_popularity)
+
+cat("Slučajna šuma RMSE:", rmse_rf, "\n")
+cat("Slučajna šuma R²:", r2_rf, "\n")
+
+```
+Model slučajne šume smanjio je RMSE u odnosu na linearnu regresiju, što znači da model bolje predviđa popularnost pjesama u prosjeku. Vrijednost R² se više nego udvostručila, što pokazuje da slučajna šuma objašnjava znatno veću varijabilnost popularnosti. To potvrđuje da složeniji model bolje hvata nelinearne i međusobne odnose između varijabli nego model linearne regresije.  
+
+Vizualizirajmo za kraj usporedbu stvarnih i predviđenih vrijednosti popularnosti pomoću modela slučajne šume.
+
+```{r}
+ggplot(data_test, aes(x = track_popularity, y = predPopularityRF)) +
+  geom_point(alpha = 0.3, color = "blue") +
+  geom_abline(intercept = 0, slope = 1, color = "red") +
+  labs(
+    title = "Predviđeno vs Stvarno: Random Forest",
+    x = "Stvarna popularnost",
+    y = "Predviđena popularnost"
+  ) +
+  theme_bw()
+
+```
+Predviđene vrijednosti popularnosti su prilično raspršene; za mnoge pjesme s popularnošću blizu nule model predviđa znatno više vrijednosti. Iako se neke točke grupiraju oko dijagonale, odstupanja su velika, što se slaže s visokim vrijednostima RMSE i umjerenim R².
+
+
+# Zaključak
+
+**1) Kako se audio svojstva razlikuju po žanrovima?**  
+Najveće razlike među žanrovima vidljive su u plesnosti i energiji, dok tempo i valence ostaju relativno slični, uz manje odstupanje određenih žanrova poput EDM-a i latina.  
+
+**2) Utječe li mode (dur/mol) na popularnost pjesama?**   
+Popularnost pjesama ne ovisi značajno o modu, jer se medijani i distribucije dur i mol pjesama uvelike preklapaju.  
+
+**3) Je li energija pjesme povezana s tempom i glasnoćom?**   
+Glasnoća snažno utječe na energiju pjesme, tempo ima slabiji, ali statistički značajan utjecaj, a zajedno objašnjavaju čak 47% varijabilnosti energije, što pokazuje da ove dvije karakteristike imaju značajan utjecaj na percepciju energičnosti pjesme.   
+
+**4) Kako su se audio karakteristike pjesama mijenjale kroz vrijeme?**   
+Plesnost je značajno porasla do 1995. godine, energija postupno raste kroz cijelo razdoblje, dok emocionalna pozitivnost od 2000. nadalje znatno opada, pokazujući trend ritmički i energetski snažnijih, ali emocionalno ozbiljnijih pjesama.  
+
+**5) Koje varijable utječu na popularnost pjesme? **  
+Linearni model pokazuje da žanr playlisti, danceability, loudness i instrumentalness značajno utječu na popularnost pjesama, dok key, mode i speechiness nemaju značajan utjecaj. Model slučajne šume bolje hvata nelinearne i međusobne odnose među varijablama te objašnjava znatno veću varijabilnost popularnosti.
 
 
 
