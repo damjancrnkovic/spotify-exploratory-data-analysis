@@ -14,17 +14,17 @@ library(readr)
 library(stringi)
 library(tidyverse)
 library(lubridate)
+library(MASS)
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-Pri učitavanju podataka iz csv datoteke treba pripaziti na separator i vrstu encodinga.
+Pri učitavanju podataka iz CSV datoteke, nakon čega slijedi osnovna analiza, proučavamo strukturu skupa podataka, prvih nekoliko zapisa te sažetak varijabli kako bismo stekli uvid u njihove karakteristike.
 
 ```{r, results='hide'}
-data <- read.csv("spotify_songs.csv", sep = ",", fileEncoding = "ISO-8859-1")
-
+data <- read_csv("spotify_songs.csv")
 glimpse(data)
-head(data, 10)
-summary(data)
+# head(data, 10)
+# summary(data)
 ```
 # Priprema podataka
 
@@ -50,7 +50,7 @@ Zanima nas koje audio značajke odlikuju žanrove i koliko se žanrovi razlikuju
 
 ```{r}
 data %>%
-  select(playlist_genre, energy, danceability, valence, tempo) %>%
+  dplyr::select(playlist_genre, energy, danceability, valence, tempo) %>%
   pivot_longer(-playlist_genre, names_to = "svojstva", values_to = "vrijednosti") %>%
   ggplot(aes(x = playlist_genre, y = vrijednosti, fill = playlist_genre)) +
   geom_boxplot() +
@@ -154,15 +154,18 @@ data_modified %>%
   mutate(decade = floor(relase_year / 10) * 10) %>% 
   count(decade)
 ```
-Primjećujemo vrlo mali broj podataka u pedesetim i šezdesetim godinama, što može uzrokovati nekonzistentnost na grafičkom prikazu.
+Primjećujemo vrlo mali broj podataka u pedesetim i šezdesetim godinama, što može uzrokovati nekonzistentnost i šum na grafičkom prikazu.
 
 
-U nastavku istovremeno prikazujemo promjene prosječne danceability, energy i valence kroz godine, ograničavajući interval na 1970. godinu nadalje.
+U nastavku istovremeno prikazujemo promjene prosječne plesnosti (danceability), energije (energy) i emocionalne pozitivnosti (valence) kroz godine, ograničavajući interval na 1970. godinu nadalje. Podaci su dodatno zaglađeni kako bi se smanjio utjecaj godišnjih oscilacija i jasno istaknuo dugoročni trend, pri čemu se i dalje zadržava pregled stvarnih promjena kroz vrijeme.
 ```{r}
 ggplot(yearly %>% filter(relase_year >= 1970), aes(x = relase_year)) + 
-  geom_line(aes(y = mean_d, color = "Danceability")) + 
-  geom_line(aes(y = mean_e, color = "Energy")) + 
-  geom_line(aes(y = mean_v, color = "Valence")) + 
+  geom_line(aes(y = mean_d, color = "Danceability"), alpha = 0.4) + 
+  geom_line(aes(y = mean_e, color = "Energy"), alpha = 0.4) + 
+  geom_line(aes(y = mean_v, color = "Valence"), alpha = 0.4) + 
+  geom_smooth(aes(y = mean_d, color = "Danceability"), se = FALSE) +
+  geom_smooth(aes(y = mean_e, color = "Energy"), se = FALSE) +
+  geom_smooth(aes(y = mean_v, color = "Valence"), se = FALSE) +
   labs(
     title = "Prosječne audio karakteristike pjesama kroz godine (1970 nadalje)",
     x = "Godina izdanja",
@@ -171,7 +174,24 @@ ggplot(yearly %>% filter(relase_year >= 1970), aes(x = relase_year)) +
   ) +
   theme_bw()
 ```
-Podaci su stabilni, s vidljivim, iako sporim, ali svakako postojanim rastom mjera danceability i energy, dok je valence doživio nagli pad unazad od 2010. godine. Ovo možemo interpretirati kao da emocionalna pozitivnost novijih pjesama značajno opada.
+Plesnost (danceability) je doživjela znatan porast u razdoblju od 1970. do 1995. godine, što je vjerojatno povezano s popularnošću plesnih i disko ritmova tog doba, dok nakon 1995. dolazi do stagnacije.
+
+Energija (energy) postepeno raste kroz cijelo promatrano razdoblje, pokazujući kontinuirani trend intenzivnijih i dinamičnijih produkcija u pjesmama.
+
+Emocionalna pozitivnost (valence) od 2000. nadalje strmoglavo opada, što sugerira da novije pjesme, iako ritmički i energetski snažnije, postaju emocionalno ozbiljnije ili manje vedre.
+
+
+# 5) Koje varijable utječu na popularnost pjesme?
+-- uvijek je u fokusu promatranja hoce li i koliko pjesma biti popularna--
+```{r}
+model_empty <- lm(track_popularity ~ 1, data = data)
+# model_full <- lm(track_popularity ~ ., data = data)
+
+# model <- stepAIC(lm_empty, direction = "forward", scope = list(upper = model_full, lower = model_empty), trace = 0)
+# summary(model)
+
+```
+
 
 
 
