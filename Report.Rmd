@@ -1,0 +1,312 @@
+---
+title: "Exploratory Data Analysis of the Spotify Dataset"
+author: "36558993 Ivan Josip Kardum, 36557629 Damjan Crnković"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(stringi)
+library(tidyverse)
+library(lubridate)
+library(kernlab)
+library(caret)
+library(ranger)
+library(MASS)
+knitr::opts_chunk$set(echo = TRUE)
+```
+This report presents an exploratory analysis of the "Spotify songs dataset (Kaggle)", which contains approximately 30,000 songs with described characteristics such as popularity, danceability, tempo, and key. The goal of the analysis is to examine relationships between genre, audio properties, and song popularity through statistical processing and data visualization, as well as to explore how these characteristics have changed over time. Additionally, models have been developed to predict song popularity based on their properties and genre.
+
+
+When loading data from a CSV file, followed by basic analysis, we examine the structure of the dataset, the first few records, and a summary of variables to gain insight into their characteristics.
+
+```{r, results='hide'}
+data <- read_csv("spotify_songs.csv")
+```
+
+```{r}
+glimpse(data)
+# head(data, 10)
+# summary(data)
+```
+The dataset contains 23 variables that describe songs, including audio features, genre, popularity, and album information. These variables enable analysis of relationships between song properties and their popularity.
+
+# Data Preparation
+
+We notice that the date column needs to be converted to the correct type and that we have several categorical variables that need to be factorized so we can use them for grouping in visualizations and analysis as needed.
+
+```{r}
+data$track_album_release_date <- as.Date(data$track_album_release_date)
+
+data$mode <- factor(
+  data$mode,
+  levels = c(0, 1),
+  labels = c("Minor", "Major")
+)
+
+factcols <- c("playlist_genre", "playlist_subgenre", "playlist_name", "track_artist")
+data[factcols] <- lapply(data[factcols], as.factor)
+
+```
+
+# 1) How do audio properties differ across genres?
+
+We are interested in which audio features characterize genres and how much genres differ in these properties. We examine the relationship between energy, danceability, valence, and tempo with genre.
+
+```{r}
+data %>%
+  dplyr::select(playlist_genre, energy, danceability, valence, tempo) %>%
+  pivot_longer(-playlist_genre, names_to = "svojstva", values_to = "vrijednosti") %>%
+  ggplot(aes(x = playlist_genre, y = vrijednosti, fill = playlist_genre)) +
+  geom_boxplot() +
+  facet_wrap(~ svojstva, scales = "free_y") +
+  labs(title = "Genres by Song Properties",
+       x = "",
+       y = "") +
+  theme(legend.position = "none", 
+        plot.title = element_text(hjust = 0.5)) +
+  theme_bw()
+```
+
+Reviewing the graphs, we can see that genres differ most in danceability and energy, where the differences in medians are visually obvious, while variability is approximately the same (visible from the interquartile range). Tempo shows small differences among genres and appears to have no significant influence in classifying a song into a particular genre. Valence is also similar among most genres, with the exception of the EDM genre which deviates with a low level of valence and the Latin genre which has a slightly higher level than others. The analysis was conducted at the playlist level, where the same song can appear in multiple genres, which is acceptable since the goal of the analysis is to compare characteristics by genre rather than individual songs.
+
+# 2) Does mode (major/minor) affect song popularity?
+
+Major scales in music sound happier and brighter than their corresponding minor scales, so we analyze whether there is a difference in the popularity of songs based on musical mode. We will remove multiple occurrences of specific songs so they don't negatively affect the results.
+
+```{r}
+data2 <- distinct(data, track_id, .keep_all = T)
+
+data2 %>% ggplot(aes(x = mode, y = track_popularity, fill = mode)) +
+  geom_boxplot() +
+  labs(title = "Song Popularity Depending on Musical Mode",
+       x = "Musical Mode",
+       y = "Popularity") +
+  theme(legend.position = "none", 
+        plot.title = element_text(hjust = 0.5)) +
+  theme_bw()
+```
+
+Reviewing the graphical representation, no clear difference in popularity is observed between songs written in major and minor. The popularity medians are very similar, and the distributions largely overlap, suggesting that musical mode by itself does not have a pronounced effect on song popularity.
+
+
+# 3) Is song energy related to tempo and loudness?
+
+Song energy is a property that is difficult to objectively define and is often defined using other properties. We are interested in whether there is a relationship between tempo and loudness and the perceived energy of songs. Again, we will analyze unique songs (without repetition) in the analysis. In the second graph, we limit ourselves to 99.9% of the data so that outliers don't disrupt the appearance of the graph.
+
+```{r}
+ggplot(data2, aes(x = tempo, y = energy)) +
+  geom_point(alpha = 0.2) +
+  geom_smooth(method = "lm", se = F) +
+  theme_bw()
+
+ggplot(data2, aes(x = loudness, y = energy)) +
+  geom_point(alpha = 0.2) +
+  coord_cartesian(
+    xlim = quantile(data2$loudness, c(0.001, 0.999)),
+    ylim = quantile(data2$energy, c(0.001, 0.999))
+  ) +
+  geom_smooth(method = "lm", se = F) +
+  theme_bw()
+
+model <- lm(energy ~ tempo + loudness, data = data2)
+summary(model)
+```
+
+The linear regression model confirms the observed relationships from the graphs. Loudness has a strong and positive effect on song energy, while the relationship between tempo and energy is statistically significant but of much weaker intensity. The R^2 value shows that tempo and loudness together explain about 47% of energy variability, suggesting that song energy also depends on other properties not analyzed here. The results are consistent with expectations, since loudness is one of the key components of music energy perception, although the effect of tempo may have been smaller than expected.
+
+# 4) How have song audio characteristics changed over time?
+
+In this part of the analysis, the goal is to examine how key audio characteristics of songs (danceability, energy, and valence) have changed over the years.
+Since we are interested in the temporal trend, it is first necessary to prepare the data and extract the year from the album release date.
+
+We remove records without a known release date from the dataset and extract the release year from the track_album_release_date variable.
+
+```{r}
+data_modified <- data %>% 
+  filter(!is.na(data$track_album_release_date)) %>% 
+  mutate(relase_year = year(track_album_release_date))
+```
+As a starting step, we show the change in danceability. Such a display shows great variability because it contains all individual songs.
+
+```{r}
+ggplot(data_modified, aes(x = track_album_release_date, y = danceability)) + 
+  geom_line(color = "red") + 
+  labs(
+    title = "Change in Danceability Over Time (by Songs)",
+    x = "Release Date",
+    y = "Danceability"
+  ) +
+  theme_bw()
+```
+Although the graph contains a large amount of noise, it serves as motivation for aggregating data at the annual level.
+
+To get a clearer picture of long-term trends, we aggregate data by year and calculate mean values of selected audio characteristics:
+```{r}
+yearly <- data_modified %>% 
+  group_by(relase_year) %>% 
+  summarise(
+    mean_d = mean(danceability),
+    mean_e = mean(energy),
+    mean_v = mean(valence)
+  )
+```
+
+Before displaying, let's look at the number of data points per decade:
+
+```{r}
+data_modified %>% 
+  mutate(decade = floor(relase_year / 10) * 10) %>% 
+  count(decade)
+```
+We notice a very small number of data points in the fifties and sixties, which can cause inconsistency and noise in the graphical display.
+
+
+Below, we simultaneously show changes in average danceability, energy, and emotional valence over the years, limiting the interval to 1970 onwards. The data is additionally smoothed to reduce the effect of annual oscillations and clearly highlight the long-term trend, while still maintaining an overview of actual changes over time.
+```{r}
+ggplot(yearly %>% filter(relase_year >= 1970), aes(x = relase_year)) + 
+  geom_line(aes(y = mean_d, color = "Danceability"), alpha = 0.4) + 
+  geom_line(aes(y = mean_e, color = "Energy"), alpha = 0.4) + 
+  geom_line(aes(y = mean_v, color = "Valence"), alpha = 0.4) + 
+  geom_smooth(aes(y = mean_d, color = "Danceability"), se = FALSE) +
+  geom_smooth(aes(y = mean_e, color = "Energy"), se = FALSE) +
+  geom_smooth(aes(y = mean_v, color = "Valence"), se = FALSE) +
+  labs(
+    title = "Average Audio Characteristics of Songs Over the Years (1970 Onwards)",
+    x = "Release Year",
+    y = "Average Value",
+    color = "Characteristic"
+  ) +
+  theme_bw()
+```
+Danceability experienced a significant increase in the period from 1970 to 1995, which is likely related to the popularity of dance and disco rhythms of that era, while after 1995 there is stagnation.
+
+Energy gradually increases throughout the observed period, showing a continuous trend of more intense and dynamic productions in songs.
+
+Emotional valence has been plummeting since 2000, suggesting that newer songs, although rhythmically and energetically stronger, are becoming emotionally more serious or less cheerful.
+
+
+# 5) Which variables affect song popularity?
+The goal of this part of the analysis is to explore which song characteristics affect its popularity. We use **track_popularity** as the target (dependent) variable, and all relevant numerical and categorical variables as predictors. First, we apply traditional linear regression, then more complex neural methods to identify the best model for prediction.
+
+The first step in building a predictive model is to split the data into a training set and a test set. We use the training set to train the model, and the test set to check how well the model performs on new, unseen data.
+```{r}
+set.seed(1234)
+train_size <- 0.7 * nrow(data) %>% round
+train_ind <- sample(1:nrow(data), train_size)
+
+data_train <- data[train_ind,]
+data_test <- data[-train_ind,]
+ 
+```
+
+Before modeling, we remove variables that don't help predict popularity, such as IDs, names, and dates.
+
+```{r}
+
+data_train <- data_train %>% 
+  dplyr::select(-track_id, -track_name, -playlist_name, -track_album_id, -track_album_name, -track_artist, -playlist_id, -playlist_subgenre, -track_album_release_date)
+data_test <- data_test %>% 
+  dplyr::select(-track_id, -track_name, -playlist_name, -track_album_id, -track_album_name, -track_artist, -playlist_id, -playlist_subgenre, -track_album_release_date)
+```
+
+Now we use multiple linear regression to estimate the effect of each variable on song popularity.
+
+```{r}
+lmMod <- lm(track_popularity ~ ., data = data_train)
+summary(lmMod)
+```
+The linear model shows that several variables, such as playlist genre, danceability, loudness, and instrumentalness, significantly affect song popularity. Some variables, such as key, mode, and speechiness, are not statistically significant and do not contribute to popularity prediction.
+
+We define functions to calculate RMSE and R² to assess model accuracy:
+```{r}
+rmse <- function(pred, stv) {
+  sqrt(mean((pred - stv)^2))
+}
+
+r_squared <- function(pred, true) {
+  1 - sum((pred - true)^2) / sum((true - mean(true))^2)
+}
+```
+We assess the accuracy of linear regression using RMSE and R² on the test set:
+```{r}
+data_test$predPopularityLM <- predict(lmMod, data_test)
+
+rmse_lm <- rmse(data_test$predPopularityLM, data_test$track_popularity)
+r2_lm <- r_squared(data_test$predPopularityLM, data_test$track_popularity)
+
+cat("Linear Regression RMSE:", rmse_lm, "\n")
+cat("Linear Regression R²:", r2_lm, "\n")
+```
+The results show that linear regression poorly predicts song popularity, with a large average error of about 24 (on a 1-100 scale). The low R² value (0.09) means the model explains only a small part of the variation in popularity.
+
+Now we use random forest to predict song popularity, because after linear regression we want to improve prediction accuracy. Using cross-validation, we assess the reliability of the model, then predict popularity on the test set and calculate RMSE and R² to evaluate accuracy.
+```{r, results='hide'}
+ctrl <- trainControl(
+  method = "repeatedcv",
+  number = 5,
+  repeats = 2,
+  verboseIter = TRUE
+)
+
+rfMod <- train(
+  track_popularity ~ .,
+  data = data_train,
+  method = 'ranger',
+  tuneLength = 5,
+  trControl = ctrl,
+  num.trees = 20  
+)
+```
+
+```{r}
+
+data_test$predPopularityRF <- predict(rfMod, data_test)
+
+rmse_rf <- rmse(data_test$predPopularityRF, data_test$track_popularity)
+r2_rf <- r_squared(data_test$predPopularityRF, data_test$track_popularity)
+
+cat("Random Forest RMSE:", rmse_rf, "\n")
+cat("Random Forest R²:", r2_rf, "\n")
+
+```
+The random forest model reduced RMSE compared to linear regression, meaning the model better predicts song popularity on average. The R² value more than doubled, showing that random forest explains significantly more variability in popularity. This confirms that a more complex model better captures nonlinear and mutual relationships between variables than the linear regression model.
+
+Finally, let's visualize the comparison of actual and predicted popularity values using the random forest model.
+
+```{r}
+ggplot(data_test, aes(x = track_popularity, y = predPopularityRF)) +
+  geom_point(alpha = 0.3, color = "blue") +
+  geom_abline(intercept = 0, slope = 1, color = "red") +
+  labs(
+    title = "Predicted vs Actual: Random Forest",
+    x = "Actual Popularity",
+    y = "Predicted Popularity"
+  ) +
+  theme_bw()
+
+```
+The predicted popularity values are quite scattered; for many songs with popularity close to zero, the model predicts significantly higher values. Although some points cluster around the diagonal, the deviations are large, which is consistent with high RMSE values and moderate R².
+
+
+# Conclusion
+
+**1) How do audio properties differ across genres?**  
+The largest differences among genres are visible in danceability and energy, while tempo and valence remain relatively similar, with minor deviations of certain genres such as EDM and Latin.
+
+**2) Does mode (major/minor) affect song popularity?**   
+Song popularity does not significantly depend on mode, as the medians and distributions of major and minor songs largely overlap.
+
+**3) Is song energy related to tempo and loudness?**   
+Loudness strongly affects song energy, tempo has a weaker but statistically significant effect, and together they explain as much as 47% of energy variability, showing that these two characteristics have a significant impact on the perception of song energy.
+
+**4) How have song audio characteristics changed over time?**   
+Danceability increased significantly until 1995, energy gradually increases throughout the period, while emotional valence has significantly declined since 2000, showing a trend of rhythmically and energetically stronger but emotionally more serious songs.
+
+**5) Which variables affect song popularity?**  
+The linear model shows that playlist genre, danceability, loudness, and instrumentalness significantly affect song popularity, while key, mode, and speechiness have no significant effect. The random forest model better captures nonlinear and mutual relationships among variables and explains significantly more variability in popularity.
