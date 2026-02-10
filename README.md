@@ -1,6 +1,6 @@
 # Statistical Programming Project: Analysis of Spotify Track Characteristics
 
-This project was developed as part of the Statistical Programming Fundamentals course at the Faculty of Electrical Engineering and Computing (FER). It features a comprehensive Exploratory Data Analysis (EDA) of a Spotify tracks dataset, followed by the application of foundational Machine Learning techniques to uncover patterns and trends in the music data.
+This project was developed as part of the Statistical Programming Fundamentals course at the Faculty of Electrical Engineering and Computing (FER). It features a comprehensive Exploratory Data Analysis (EDA) of a Spotify tracks dataset, followed by the application of foundational machine learning techniques to uncover patterns and trends in the music data.
 
 
 ### Data Dictionary
