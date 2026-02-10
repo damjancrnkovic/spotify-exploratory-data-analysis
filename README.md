@@ -1,33 +1,6 @@
-![@neonbrand via Unsplash - person holding space gray iPhone 6](https://images.unsplash.com/photo-1495434942214-9b525bba74e9?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=1350&q=80)
-
-# Spotify Songs
-
-The data this week comes from Spotify via the [`spotifyr` package](https://www.rcharlie.com/spotifyr/). [Charlie Thompson](https://twitter.com/_RCharlie), [Josiah Parry](https://twitter.com/JosiahParry), Donal Phipps, and Tom Wolff authored this package to make it easier to get either your own data or general metadata arounds songs from Spotify's API. Make sure to check out the [`spotifyr` package](https://www.rcharlie.com/spotifyr/) website to see how you can collect your own data!
-
-[Kaylin Pavlik](https://twitter.com/kaylinquest/status/1213138536570015745) had a recent [blogpost](https://www.kaylinpavlik.com/classifying-songs-genres/) using the audio features to explore and classify songs. She used the `spotifyr` package to collect about 5000 songs from 6 main categories (EDM, Latin, Pop, R&B, Rap, & Rock). 
-
-h/t to [Jon Harmon](https://github.com/rfordatascience/tidytuesday/issues/160) & [Neal Grantham](https://twitter.com/nsgrantham/status/1213190975113199616).
-
-### Get the data here
-
-```{r}
-# Get the Data
-
-spotify_songs <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-01-21/spotify_songs.csv')
-
-# Or read in with tidytuesdayR package (https://github.com/thebioengineer/tidytuesdayR)
-# PLEASE NOTE TO USE 2020 DATA YOU NEED TO UPDATE tidytuesdayR from GitHub
-
-# Either ISO-8601 date or year/week works!
-
-# Install via devtools::install_github("thebioengineer/tidytuesdayR")
-
-tuesdata <- tidytuesdayR::tt_load('2020-01-21') 
-tuesdata <- tidytuesdayR::tt_load(2020, week = 4)
+This project was developed as part of the Statistical Programming Fundamentals course at the Faculty of Electrical Engineering and Computing (FER). It features a comprehensive Exploratory Data Analysis (EDA) of a Spotify tracks dataset, followed by the application of foundational Machine Learning techniques to uncover patterns and trends in the music data.
 
 
-spotify_songs <- tuesdata$spotify_songs
-```
 ### Data Dictionary
 
 # `spotify_songs.csv`
